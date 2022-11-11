@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <sstream>
 
 namespace needle {
 namespace cpu {
@@ -43,10 +44,43 @@ void Fill(AlignedArray* out, scalar_t val) {
   }
 }
 
+void IncrementMultiIndex(std::vector<std::size_t> * index_ptr, std::vector<uint32_t> const& shape) {
+  assert(index_ptr && "index is null");
+  std::vector<std::size_t> & index = *index_ptr;
+  // TODO: ugly int64_t to avoid underflow, refactor me
+  for(int64_t i = shape.size() - 1; i >= 0; --i) {
+    if(index.at(i) < shape.at(i) - 1) {
+        index[i] += 1;
+        break;
+    } else {
+      index.at(i) = 0;
+    }
+  }
+}
 
+std::size_t MultiIndexToFlatIndex(std::vector<std::size_t> const& index, std::vector<uint32_t> const& strides, uint32_t offset) {
+  std::size_t result = offset;
+  for(std::size_t dim = 0, dim_end = index.size(); dim < dim_end; ++dim) {
+    result += (index[dim] * strides[dim]);
+  }
+  return result;
+}
 
+template <typename T>
+std::string ArrayToSring(std::vector<T> const& index) {
+  std::ostringstream out;
+  out << "(";
+  for(std::size_t dim = 0, dim_end = index.size(); dim < dim_end; ++dim) {
+    out << index[dim];
+    if(dim < dim_end - 1) {
+      out << ", ";
+    }
+  }
+  out << ")";
+  return out.str();
+}
 
-void Compact(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t> shape,
+void Compact(AlignedArray const& in, AlignedArray* out, std::vector<uint32_t> shape,
              std::vector<uint32_t> strides, size_t offset) {
   /**
    * Compact an array in memory
@@ -62,12 +96,36 @@ void Compact(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t> sha
    *  void (you need to modify out directly, rather than returning anything; this is true for all the
    *  function will implement here, so we won't repeat this note.)
    */
+
+  ////
+  // Example for 3d input:
+  // cnt = 0;
+  // for (size_t i = 0; i < shape[0]; i++)
+  //     for (size_t j = 0; j < shape[1]; j++)
+  //         for (size_t k = 0; k < shape[2]; k++)
+  //             out[cnt++] = in[strides[0]*i + strides[1]*j + strides[2]*k];
+
   /// BEGIN YOUR SOLUTION
+
+  // std::size_t out_size = out.size;
+  std::size_t out_size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
+  std::vector<std::size_t> in_idx_m(shape.size(), 0);
+
+  // std::cout << "DEBUG[Compact]: input.offset = " << offset << std::endl;
+  // std::cout << "DEBUG[Compact]: input.shape = " << ArrayToSring(shape) << std::endl;
+  // std::cout << "DEBUG[Compact]: input.strides = " << ArrayToSring(strides) << std::endl;
+  // std::cout << "DEBUG[Compact]: output.size = " << out_size << std::endl;
+  
+  for(std::size_t out_idx = 0; out_idx < out_size; ++out_idx, IncrementMultiIndex(&in_idx_m, shape)) {
+    std::size_t in_idx = MultiIndexToFlatIndex(in_idx_m, strides, offset);
+    // std::cout << "DEBUG[Compact]: Setting out[" << out_idx << "] = " << "in[" << in_idx << "] = " << in.ptr[in_idx] << " (from " << ArrayToSring(in_idx_m) << ")" << std::endl;
+    out->ptr[out_idx] = in.ptr[in_idx];
+  }
   
   /// END YOUR SOLUTION
 }
 
-void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t> shape,
+void EwiseSetitem(const AlignedArray& in, AlignedArray* out, std::vector<uint32_t> shape,
                   std::vector<uint32_t> strides, size_t offset) {
   /**
    * Set items in a (non-compact) array
@@ -80,6 +138,14 @@ void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t
    *   offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN YOUR SOLUTION
+
+  std::size_t in_size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
+  std::vector<std::size_t> out_idx_m(shape.size(), 0);
+
+  for(std::size_t in_idx = 0; in_idx < in_size; ++in_idx, IncrementMultiIndex(&out_idx_m, shape)) {
+    std::size_t out_idx = MultiIndexToFlatIndex(out_idx_m, strides, offset);
+    out->ptr[out_idx] = in.ptr[in_idx];
+  }
   
   /// END YOUR SOLUTION
 }
@@ -101,6 +167,15 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
    */
 
   /// BEGIN YOUR SOLUTION
+
+  // std::size_t out_size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
+  std::size_t in_size = size;
+  std::vector<std::size_t> out_idx_m(shape.size(), 0);
+
+  for(std::size_t in_idx = 0; in_idx < in_size; ++in_idx, IncrementMultiIndex(&out_idx_m, shape)) {
+    std::size_t out_idx = MultiIndexToFlatIndex(out_idx_m, strides, offset);
+    out->ptr[out_idx] = val;
+  }
   
   /// END YOUR SOLUTION
 }
