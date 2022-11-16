@@ -67,7 +67,7 @@ std::size_t MultiIndexToFlatIndex(std::vector<std::size_t> const& index, std::ve
 }
 
 template <typename T>
-std::string ArrayToSring(std::vector<T> const& index) {
+std::string ArrayToString(std::vector<T> const& index) {
   std::ostringstream out;
   out << "(";
   for(std::size_t dim = 0, dim_end = index.size(); dim < dim_end; ++dim) {
@@ -80,8 +80,75 @@ std::string ArrayToSring(std::vector<T> const& index) {
   return out.str();
 }
 
-void Compact(AlignedArray const& in, AlignedArray* out, std::vector<uint32_t> shape,
-             std::vector<uint32_t> strides, size_t offset) {
+std::string ArrayToString(AlignedArray const& index) {
+  std::ostringstream out;
+  out << "(";
+  for(std::size_t dim = 0, dim_end = index.size; dim < dim_end; ++dim) {
+    out << index.ptr[dim];
+    if(dim < dim_end - 1) {
+      out << ", ";
+    }
+  }
+  out << ")";
+  return out.str();
+}
+
+
+std::vector<uint32_t> GetCompactStrides(std::vector<uint32_t> const& shape) {
+  std::vector<uint32_t> result(shape.size(), 0);
+  uint32_t multiple = 1;
+  size_t size = shape.size();
+  for(size_t i = 0; i < size; ++i) {
+    size_t idx = (size - 1) - i;
+    // std::cout << "DEBUG[GetCompactStrides]: step=" << i << ", "
+    //           << "idx=" << idx << ", "
+    //           << "multiple=" << multiple << std::endl; 
+    result[idx] = multiple;
+    multiple *= shape[idx];
+  }
+  return result;
+}
+
+size_t GetSparseIdx(
+    size_t compact_idx,
+    std::vector<uint32_t> const& compact_strides,
+    size_t sparse_offset,
+    std::vector<uint32_t> const& sparse_strides
+) {
+  // std::cout << "DEBUG[Compact]: GetSparseIdx("
+  //           << "compact_idx=" << compact_idx << ", "
+  //           << "compact_strides=" << ArrayToString(compact_strides) << ", "
+  //           << "sparse_offset=" << sparse_offset << ", "
+  //           << "sparse_strides=" << ArrayToString(sparse_strides) << "):"
+  //           << std::endl;
+  size_t sparse_idx = sparse_offset;
+  size_t size = compact_strides.size();
+  for(size_t i = 0; i < size; ++i) {
+    uint32_t compact_stride = compact_strides[i];
+    uint32_t sparse_pos = compact_idx / compact_stride;
+    sparse_idx += sparse_pos * sparse_strides[i];
+    compact_idx %= compact_stride;
+    // std::cout << "DEBUG[Compact:GetSparseIdx]: step " << i << ": "
+    //           << "compact_strides[" << i << "]=" << compact_strides[i] << ", "
+    //           << "sparse_strides[" << i << "]=" << sparse_strides[i] << ", "
+    //           << "sparse_pos=" << sparse_pos << ", "
+    //           << "sparse_idx=" << sparse_idx << ", "
+    //           << "compact_idx=" << compact_idx
+    //           << std::endl;
+
+  }
+  // std::cout << "DEBUG[Compact]: GetSparseIdx("
+  //           << "compact_idx=" << compact_idx << ", "
+  //           << "compact_strides=" << ArrayToString(compact_strides) << ", "
+  //           << "sparse_offset=" << sparse_offset << ", "
+  //           << "sparse_strides=" << ArrayToString(sparse_strides) << ") -> "
+  //           << sparse_idx
+  //           << std::endl;
+  return sparse_idx;
+}
+
+void Compact(AlignedArray const& a, AlignedArray* out, std::vector<uint32_t> shape,
+             std::vector<uint32_t> in_strides, size_t in_offset) {
   /**
    * Compact an array in memory
    *
@@ -89,69 +156,65 @@ void Compact(AlignedArray const& in, AlignedArray* out, std::vector<uint32_t> sh
    *   a: non-compact representation of the array, given as input
    *   out: compact version of the array to be written
    *   shape: shapes of each dimension for a and out
-   *   strides: strides of the *a* array (not out, which has compact strides)
-   *   offset: offset of the *a* array (not out, which has zero offset, being compact)
+   *   in_strides: strides of the *in* array (not out, which has compact strides)
+   *   in_offset: offset of the *in* array (not out, which has zero offset, being compact)
    *
    * Returns:
    *  void (you need to modify out directly, rather than returning anything; this is true for all the
    *  function will implement here, so we won't repeat this note.)
    */
 
-  ////
-  // Example for 3d input:
-  // cnt = 0;
-  // for (size_t i = 0; i < shape[0]; i++)
-  //     for (size_t j = 0; j < shape[1]; j++)
-  //         for (size_t k = 0; k < shape[2]; k++)
-  //             out[cnt++] = in[strides[0]*i + strides[1]*j + strides[2]*k];
-
   /// BEGIN YOUR SOLUTION
 
-  // std::size_t out_size = out.size;
-  std::size_t out_size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
-  std::vector<std::size_t> in_idx_m(shape.size(), 0);
+  // std::cout << "DEBUG[Compact]: input.offset = " << in_offset << std::endl;
+  // std::cout << "DEBUG[Compact]: input.shape = " << ArrayToString(shape) << std::endl;
+  // std::cout << "DEBUG[Compact]: input.strides = " << ArrayToString(in_strides) << std::endl;
+  // std::cout << "DEBUG[Compact]: output.size = " << out->size << std::endl;
 
-  // std::cout << "DEBUG[Compact]: input.offset = " << offset << std::endl;
-  // std::cout << "DEBUG[Compact]: input.shape = " << ArrayToSring(shape) << std::endl;
-  // std::cout << "DEBUG[Compact]: input.strides = " << ArrayToSring(strides) << std::endl;
-  // std::cout << "DEBUG[Compact]: output.size = " << out_size << std::endl;
-  
-  for(std::size_t out_idx = 0; out_idx < out_size; ++out_idx, IncrementMultiIndex(&in_idx_m, shape)) {
-    std::size_t in_idx = MultiIndexToFlatIndex(in_idx_m, strides, offset);
-    // std::cout << "DEBUG[Compact]: Setting out[" << out_idx << "] = " << "in[" << in_idx << "] = " << in.ptr[in_idx] << " (from " << ArrayToSring(in_idx_m) << ")" << std::endl;
-    out->ptr[out_idx] = in.ptr[in_idx];
+  std::vector<uint32_t> out_strides = GetCompactStrides(shape);
+
+  // std::cout << "DEBUG[Compact]: output.strides = " << ArrayToString(out_strides) << std::endl;
+
+  size_t size = out->size;
+  for(size_t out_idx = 0; out_idx < size; ++out_idx) {
+    size_t in_idx = GetSparseIdx(out_idx, out_strides, in_offset, in_strides);
+    // std::cout << "DEBUG[Compact]: copying out->ptr[" << out_idx << "] = a.ptr[" << in_idx << "] = " << a.ptr[in_idx] << std::endl;
+    out->ptr[out_idx] = a.ptr[in_idx];
   }
-  
+
   /// END YOUR SOLUTION
 }
 
 void EwiseSetitem(const AlignedArray& in, AlignedArray* out, std::vector<uint32_t> shape,
-                  std::vector<uint32_t> strides, size_t offset) {
+                  std::vector<uint32_t> out_strides, size_t out_offset) {
   /**
    * Set items in a (non-compact) array
    *
    * Args:
-   *   a: _compact_ array whose items will be written to out
+   *   in: _compact_ array whose items will be written to out
    *   out: non-compact array whose items are to be written
    *   shape: shapes of each dimension for a and out
-   *   strides: strides of the *out* array (not a, which has compact strides)
-   *   offset: offset of the *out* array (not a, which has zero offset, being compact)
+   *   out_strides: strides of the *out* array (not a, which has compact strides)
+   *   out_offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN YOUR SOLUTION
 
-  std::size_t in_size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
-  std::vector<std::size_t> out_idx_m(shape.size(), 0);
+  // std::size_t size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
+  
+  std::vector<uint32_t> in_strides = GetCompactStrides(shape);
 
-  for(std::size_t in_idx = 0; in_idx < in_size; ++in_idx, IncrementMultiIndex(&out_idx_m, shape)) {
-    std::size_t out_idx = MultiIndexToFlatIndex(out_idx_m, strides, offset);
+  size_t size = in.size;
+  for(size_t in_idx = 0; in_idx < size; ++in_idx) {
+    size_t out_idx = GetSparseIdx(in_idx, in_strides, out_offset, out_strides);
+    // std::cout << "DEBUG[Compact]: copying out->ptr[" << out_idx << "] = in.ptr[" << in_idx << "] = " << in.ptr[in_idx] << std::endl;
     out->ptr[out_idx] = in.ptr[in_idx];
   }
-  
+
   /// END YOUR SOLUTION
 }
 
 void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vector<uint32_t> shape,
-                   std::vector<uint32_t> strides, size_t offset) {
+                   std::vector<uint32_t> out_strides, size_t out_offset) {
   /**
    * Set items is a (non-compact) array
    *
@@ -162,21 +225,21 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
    *   val: scalar value to write to
    *   out: non-compact array whose items are to be written
    *   shape: shapes of each dimension of out
-   *   strides: strides of the out array
-   *   offset: offset of the out array
+   *   out_strides: strides of the out array
+   *   out_offset: offset of the out array
    */
 
   /// BEGIN YOUR SOLUTION
 
   // std::size_t out_size = std::accumulate(std::begin(shape), std::end(shape), 1, std::multiplies<std::size_t>());
-  std::size_t in_size = size;
-  std::vector<std::size_t> out_idx_m(shape.size(), 0);
+  std::vector<uint32_t> in_strides = GetCompactStrides(shape);
 
-  for(std::size_t in_idx = 0; in_idx < in_size; ++in_idx, IncrementMultiIndex(&out_idx_m, shape)) {
-    std::size_t out_idx = MultiIndexToFlatIndex(out_idx_m, strides, offset);
+  for(size_t in_idx = 0; in_idx < size; ++in_idx) {
+    size_t out_idx = GetSparseIdx(in_idx, in_strides, out_offset, out_strides);
+    // std::cout << "DEBUG[Compact]: setting out->ptr[" << out_idx << "] = val = " << val << std::endl;
     out->ptr[out_idx] = val;
   }
-  
+
   /// END YOUR SOLUTION
 }
 
