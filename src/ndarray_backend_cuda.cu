@@ -559,10 +559,76 @@ void EwiseTanh(const CudaArray& a, CudaArray* out) {
 // Elementwise and scalar operations
 ////////////////////////////////////////////////////////////////////////////////
 
+//// Reference single-threaded solution:
+// size_t m_size = M;
+// size_t n_size = N;
+// size_t p_size = P;
+
+// for(size_t m = 0; m < m_size; ++m) {
+//   for(size_t p = 0; p < p_size; ++p) {
+//     size_t out_idx = m * p_size + p;
+//     std::cerr << "calculating out->ptr[(" << m << ", " << p << ") -> " << out_idx << "]..." << std::endl;
+
+//     // Do the reduction along n:
+//     scalar_t val = 0;
+//     for(size_t n = 0; n < n_size; ++n) {
+//       size_t a_idx = m * n_size + n;
+//       size_t b_idx = n * p_size + p;
+//       val += a.ptr[a_idx] * b.ptr[b_idx];
+//       std::cerr << "\tval += a.ptr[(" << m << ", " << n << ") -> " << a_idx 
+//                 <<      "] * b.ptr[(" << n << ", " << p << ") -> " << b_idx << "] = " << val << std::endl;
+//     }
+    
+//     std::cerr << "setting out->ptr[(" << m << ", " << p << ") -> " << out_idx << "] = " << val << std::endl;
+//     out->ptr[out_idx] = val;
+//   }
+// }
+
+__global__ void MatmulKernel(
+    const scalar_t* a, const scalar_t* b, scalar_t* out, size_t out_size,
+    uint32_t M, uint32_t N, uint32_t P
+) {
+
+  // a: compact 2D array of size M x N
+  // b: comapct 2D array of size N x P
+  // out: compact 2D array of size M x P to write the output to
+
+  size_t out_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (out_idx < out_size) {
+    size_t m = out_idx / P;
+    size_t p = out_idx % P;
+
+    // Do the reduction along N:
+    scalar_t val = 0;
+    for(size_t n = 0; n < N; ++n) {
+      size_t a_idx = m * N + n;
+      size_t b_idx = n * P + p;
+      val += a[a_idx] * b[b_idx];
+      // printf("\tval += a[(%lu, %lu) -> %lu] * b[(%lu, %lu) -> %lu] = %f\n",
+      //   static_cast<unsigned long>(m),
+      //   static_cast<unsigned long>(n),
+      //   static_cast<unsigned long>(a_idx),
+      //   static_cast<unsigned long>(n),
+      //   static_cast<unsigned long>(p),
+      //   static_cast<unsigned long>(b_idx),
+      //   val
+      // );
+    }
+
+    // printf("DEBUG[Matmul]: out_idx=%lu, out[%lu, %lu] = %f\n", 
+    //   static_cast<unsigned long>(out_idx),
+    //   static_cast<unsigned long>(m),
+    //   static_cast<unsigned long>(p),
+    //   val
+    // );
+    out[out_idx] = val;
+  }
+}
 
 
-void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, uint32_t N,
-            uint32_t P) {
+void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, 
+            uint32_t M, uint32_t N, uint32_t P) {
   /**
    * Multiply two (compact) matrices into an output (also comapct) matrix.  You will want to look
    * at the lecture and notes on GPU-based linear algebra to see how to do this.  Since ultimately
@@ -577,15 +643,23 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
    * 
    *
    * Args:
-   *   a: compact 2D array of size m x n
-   *   b: comapct 2D array of size n x p
-   *   out: compact 2D array of size m x p to write the output to
-   *   M: rows of a / out
-   *   N: columns of a / rows of b
-   *   P: columns of b / out
+   *   a: compact 2D array of size M x N
+   *   b: comapct 2D array of size N x P
+   *   out: compact 2D array of size M x P to write the output to
+   *   M: rows of 'a', rows of 'out'
+   *   N: columns of 'a', rows of 'b'
+   *   P: columns of 'b', rows of 'out'
    */
 
   /// BEGIN YOUR SOLUTION
+
+  // std::cerr << "DEBUG[Matmul]: a.size = " << a.size << std::endl;
+  // std::cerr << "DEBUG[Matmul]: b.size = " << b.size << std::endl;
+  // std::cerr << "DEBUG[Matmul]: out->size = " << out->size << std::endl;
+  // std::cerr << "DEBUG[Matmul]: M=" << M << ", N=" << N << ", P=" << P << std::endl;
+
+  CudaDims dim = CudaOneDim(out->size);
+  MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, out->size, M, N, P);
   
   /// END YOUR SOLUTION
 }
@@ -594,7 +668,24 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
 // Max and sum reductions
 ////////////////////////////////////////////////////////////////////////////////
 
-
+__global__ void ReduceMaxKernel(const scalar_t* a, scalar_t* out, size_t out_size, size_t reduce_size) {
+  size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (gid < out_size) {
+    size_t out_idx = gid;
+    size_t in_idx = gid * reduce_size;
+    // printf("DEBUG[ReduceMaxKernel]: gid=%lu: reducnig in[%lu:%lu] -> out[%lu]\n",
+    //   static_cast<unsigned long>(gid),
+    //   static_cast<unsigned long>(gid * reduce_size),
+    //   static_cast<unsigned long>((gid + 1) * reduce_size - 1),
+    //   static_cast<unsigned long>(out_idx)
+    // );
+    scalar_t val = a[in_idx];
+    for(size_t i = 1; i < reduce_size; ++i) {
+      val = max(val, a[in_idx+i]);
+    }
+    out[out_idx] = val;
+  }
+}
 
 void ReduceMax(const CudaArray& a, CudaArray* out, size_t reduce_size) {
   /**
@@ -607,12 +698,28 @@ void ReduceMax(const CudaArray& a, CudaArray* out, size_t reduce_size) {
    *   redice_size: size of the dimension to reduce over
    */
   /// BEGIN YOUR SOLUTION
+
+  // std::cerr << "DEBUG[ReduceMax]:" << std::endl;
+  CudaDims dim = CudaOneDim(out->size);
+  ReduceMaxKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, out->size, reduce_size);
+  // std::cerr << "DEBUG[ReduceMax]: done." << std::endl;
   
   /// END YOUR SOLUTION
 }
 
 
-
+__global__ void ReduceSumKernel(const scalar_t* a, scalar_t* out, size_t out_size, size_t reduce_size) {
+  size_t out_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  
+  if (out_idx < out_size) {
+    scalar_t val = 0;
+    size_t in_idx_end = (out_idx + 1) * reduce_size;
+    for(size_t in_idx = out_idx * reduce_size; in_idx < in_idx_end; ++in_idx) {
+      val += a[in_idx];
+    }
+    out[out_idx] = val;
+  }
+}
 
 void ReduceSum(const CudaArray& a, CudaArray* out, size_t reduce_size) {
   /**
@@ -625,6 +732,9 @@ void ReduceSum(const CudaArray& a, CudaArray* out, size_t reduce_size) {
    *   redice_size: size of the dimension to reduce over
    */
   /// BEGIN YOUR SOLUTION
+
+  CudaDims dim = CudaOneDim(out->size);
+  ReduceSumKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, out->size, reduce_size);
   
   /// END YOUR SOLUTION
 }

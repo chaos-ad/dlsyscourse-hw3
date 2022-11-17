@@ -10,23 +10,34 @@ import needle as ndl
 import needle.backend_ndarray.ndarray as nd
 
 def main():
+    (1, 2, 3), 
+    A_dims = (1, 2)
     device = nd.cuda()
-    lhs_shape, lhs_slices = ((3, 3, 3), (slice(1, 2, 1), slice(0, 1, 1), slice(0, 1, 1)))
-    rhs_shape, rhs_slices = ((3, 3, 3), (slice(1, 2, 1), slice(0, 1, 1), slice(0, 1, 1)))
-    _A = np.arange(nd.prod(lhs_shape)).reshape(*lhs_shape)
-    _B = (np.arange(nd.prod(lhs_shape)) + 100).reshape(*rhs_shape)
-    A = nd.array(_A, device=device)
-    B = nd.array(_B, device=device)
-    print(f"Before: {A=}")
-    print(f"Before: {B=}")
-    A[0, 0, 0] = B[0, 0, 0]
-    print(f"After: {A=}")
-    print(f"After: {B=}")
-    _A[0, 0, 0] = _B[0, 0, 0]
-    print(f"Numpy After: {_A=}")
-    print(f"Numpy After: {_B=}")
-    print(f"{np.isclose(A.numpy(), _A)=}")
+    A = nd.array(np.arange(nd.prod(A_dims)).reshape(*A_dims), device=device)
+    print(f"{A.shape=}")
+    print(f"{A=}")
 
+    B_dims = (2, 3)
+    B = nd.array(np.arange(nd.prod(B_dims)).reshape(*B_dims), device=device)
+    print(f"{B.shape=}")
+    print(f"{B=}")
+
+    C = A @ B
+    print(f"{C.shape=}")
+    print(f"{C=}")
+
+    D = A.numpy() @ B.numpy()
+    print(f"{D.shape=}")
+    print(f"{D=}")
+
+    np.testing.assert_allclose(C.numpy(), D, rtol=1e-5, atol=1e-5)
+
+    
+    # _A = np.random.randn(m, n)
+    # _B = np.random.randn(n, p)
+    # A = nd.array(_A, device=device)
+    # B = nd.array(_B, device=device)
+    # np.testing.assert_allclose((A @ B).numpy(), _A @ _B, rtol=1e-5, atol=1e-5)
 
 if __name__ == "__main__":
     main()
