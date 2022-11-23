@@ -665,6 +665,17 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Tiled version of Matmul
+////////////////////////////////////////////////////////////////////////////////
+
+// void MatmulTiled(const CudaArray& a, const CudaArray& b, CudaArray* out, 
+//             uint32_t M, uint32_t N, uint32_t P) {
+
+//   std::cerr << "DEBUG[MatmulTiled]: calling Matmul..." << std::endl;
+//   Matmul(a, b, out, M, N, P);
+// }
+
+////////////////////////////////////////////////////////////////////////////////
 // Max and sum reductions
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -805,6 +816,7 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
   m.def("ewise_tanh", EwiseTanh);
 
   m.def("matmul", Matmul);
+  // m.def("matmul_tiled", MatmulTiled);
 
   m.def("reduce_max", ReduceMax);
   m.def("reduce_sum", ReduceSum);

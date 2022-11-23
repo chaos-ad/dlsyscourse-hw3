@@ -10,25 +10,24 @@ import needle as ndl
 import needle.backend_ndarray.ndarray as nd
 
 def main():
-    (1, 2, 3), 
-    A_dims = (1, 2)
+    A_dims = (128, 128)
     device = nd.cuda()
     A = nd.array(np.arange(nd.prod(A_dims)).reshape(*A_dims), device=device)
     print(f"{A.shape=}")
-    print(f"{A=}")
+    # print(f"{A=}")
 
-    B_dims = (2, 3)
+    B_dims = (128, 128)
     B = nd.array(np.arange(nd.prod(B_dims)).reshape(*B_dims), device=device)
     print(f"{B.shape=}")
-    print(f"{B=}")
+    # print(f"{B=}")
 
     C = A @ B
     print(f"{C.shape=}")
-    print(f"{C=}")
+    # print(f"{C=}")
 
     D = A.numpy() @ B.numpy()
     print(f"{D.shape=}")
-    print(f"{D=}")
+    # print(f"{D=}")
 
     np.testing.assert_allclose(C.numpy(), D, rtol=1e-5, atol=1e-5)
 
